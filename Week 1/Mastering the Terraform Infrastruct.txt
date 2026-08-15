@@ -1,0 +1,44 @@
+Mastering the Terraform Infrastructure Pipeline
+
+Our organization follows a Trunk-Based Development model combined with Shift Left DevSecOps practices.
+
+A) Development Workflow:
+
+1) Developers create or modify Terraform code on the dev branch.
+2) Infrastructure changes are developed using reusable Terraform modules and environment-specific root code.
+3) A GitHub Actions pipeline is automatically triggered, which performs:
+    a)Checkout repository
+    b)terraform init
+    c)terraform plan
+    d)Security scanning using Checkov
+    e)terraform apply to the Development environment
+4)Once the infrastructure has been validated in the Development environment, the changes are reviewed and merged into the main branch.
+5)Post Merging into the main branch, we deploy changes for higher environments such as: QA ,Pre-Production, Production
+
+Each environment is promoted only after successful validation in the previous environment.
+
+B) Executing Terraform Across Multiple Environments:
+
+Our Terraform codebase supports multiple environments while maintaining a single reusable codebase.
+
+Instead of maintaining separate Terraform code for each environment, we reuse the same modules and provide different input variables for each environment.
+
+Each environment has:
+
+-Independent Terraform state
+-Separate variable files
+
+This allows each environment to evolve independently while reusing the same Terraform modules.
+
+C) As part of the Platform team, our responsibilities include:
+
+- Developing reusable Terraform modules for AWS resources
+- Creating root code that consume reusable infrastructure modules
+- Maintaining GitHub Actions-based DevSecOps pipelines
+- Provisioning infrastructure for Development, QA, Pre-Production and Production environments
+- Managing Terraform state and remote backend configuration
+- Implementing Infrastructure as Code best practices
+
+D) We follow several Terraform best practices to ensure scalability, security, and maintainability:
+
+Remote Backend, Multiple State Files, State Locking, Reusable Modules, Security Scanning using Checkov

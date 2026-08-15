@@ -1,0 +1,232 @@
+FinTech Real-Time Infrastructure Setup
+
+0. End-to-End AWS Production Infrastructure
+
+Our production platform is built using a layered architecture, where each layer has a dedicated responsibility. This separation of concerns improves security, scalability, maintainability, and allows each layer to evolve independently.
+
+The infrastructure is provisioned entirely through Modular Terraform. Instead of maintaining one large Terraform project, we divide the infrastructure into reusable modules such as:
+
+- Network Module
+- Security Module
+- EKS Module
+- Database Module
+- Observability Module
+- IAM Module
+
+Each module owns a specific part of the infrastructure and maintains its own Terraform state. This modular approach allows us to deploy, update, or roll back one component without affecting the others.
+
+Our AWS architecture consists of the following layers:
+
+Layer :	Responsibility
+---------------------------------
+CI/CD & DevTools: GitHub, GitHub Actions, ArgoCD, Terraform
+Edge Layer: Internet entry point (Route53, CloudFront, WAF, API Gateway)
+Network Layer: VPCs, Subnets, Transit Gateway, NAT Gateway, ALB
+Infrastructure Layer: Amazon EKS, Calico, Istio, Argo Rollouts, KEDA, Karpenter
+Application Layer: BFF, Payment, Ledger, Fraud, Notification, Kafka
+Data Layer: MySQL, Valkey, MongoDB, OpenSearch, Neo4j
+Security & Observability: IAM, Vault, Prometheus, Grafana, CloudWatch, Loki
+
+Each layer is deployed independently using Terraform modules, making the infrastructure easier to maintain and scale.
+
+1. Access & Control Boundaries
+Four Environment Strategy
+
+To ensure software quality and minimize production risk, we maintain four isolated environments:
+
+Development (DEV)
+
+This environment is used by developers for building and testing new features.
+
+Developers have:
+
+-Read/Write access
+-Infrastructure deployment permissions
+-IAM configuration access
+
+Quality Assurance (QA)
+
+QA validates that the deployed application behaves correctly.
+
+Activities include:
+
+-Functional Testing
+-Integration Testing
+-Security Validation
+-Regression Testing
+
+Developer permissions become more restricted.
+
+User Acceptance Testing (UAT)
+
+This environment closely resembles Production.
+
+Business users verify:
+
+-Performance
+-Load Testing
+-Business Acceptance
+-Release Validation
+
+Only controlled deployments are allowed.
+
+Production (PROD)
+
+Production hosts real customer traffic.
+
+Production follows strict controls:
+
+-Read-only access for most engineers
+-No manual code deployments
+-Infrastructure changes only through CI/CD
+-Blue/Green or Canary deployments
+-Automated Rollbacks
+
+Developer vs CI/CD Permissions
+
+During Development
+
+Developer can:
+
+-Create infrastructure
+-Update Terraform
+-Deploy applications
+
+As code moves toward Production:
+
+Developer permissions gradually reduce.
+
+The CI/CD Pipeline becomes responsible for:
+
+-Terraform Apply
+-Infrastructure provisioning
+-Kubernetes deployment
+-Approval gates
+-Rollback
+
+This prevents manual production changes.
+
+Why HashiCorp Vault?
+
+Instead of storing secrets inside Kubernetes ConfigMaps or Terraform variables, we use Vault because it provides:
+
+-Dynamic secrets
+-Secret rotation
+-Encryption
+-Audit logging
+-Temporary credentials
+
+ConfigMaps are designed for configuration, not sensitive data. Secrets such as database passwords, API keys, and certificates should be managed by Vault.
+
+2. Traffic & Interconnect Fabric
+
+Internet-to-Application Traffic Flow
+
+The production request path is:
+
+User → Route 53 → CloudFront → WAF → API Gateway → ALB → BFF → downstream microservices
+
+VPCs
+Edge  = 1
+App   = 1
+Data  = 1
+Ops   = 1
+----------------
+Total = 4 VPCs
+
+Subnets
+Edge = 3 private
+
+App  = 3 public + 6 private = 9
+
+Data = 6 private
+
+Ops  = 3 public + 3 private = 6
+
+Total = 3 + 9 + 6 + 6
+      = 24 subnets
+
+4 VPCs, 24 subnets, 6 public subnets and 18 private subnets per environment.
+
+For 4 Env,
+4 VPCs × 4 environments = 16 VPCs
+
+24 subnets × 4 environments = 96 subnets
+
+For NAT architecture,
+
+3 NAT Gateways in App
++
+3 NAT Gateways in Ops
+=
+6 NAT Gateways per environment
+
+6 × 4 environments
+=
+24 NAT Gateways
+
+For Transit Gateway Attachment
+
+4 TGW attachments per environment
+
+4 × 4 environments
+=
+16 TGW attachments
+
+The Edge VPC has three private subnets across three AZs to provide the private networking/connectivity required by the API layer and its integrations.
+
+3. Polyglot Persistence & Safe Progression
+
+Each microservice uses the database best suited for its workload.
+
+MYSQL: Legder,Payment Services
+Valkey: Caching,Sessions,Idempotency keys very low latency
+MongoDB: Used by Notification Service.
+Neo4j: Used by Fraud Service
+
+4. Shadow Testing to Canary Deployment
+
+When a new Fraud Model is introduced:
+
+Shadow Testing
+Model receives production traffic copies.
+Predictions are generated.
+Results are not used in decision-making.
+Writes are disabled or directed to a sandbox database to avoid polluting production data.
+Canary Deployment
+
+After validation:
+
+Update the deployment configuration (or ConfigMap if model endpoints are configured there) so a small percentage of live traffic is routed to the new model.
+Point the model to the production database or production read/write endpoints as appropriate.
+Gradually increase traffic (for example, 5% → 20% → 50% → 100%) using Argo Rollouts.
+Monitor metrics and roll back automatically if issues are detected.
+
+5. Platform Intelligence & Auditing
+
+Infrastructure security does not stop after Terraform deployment
+
+Amazon Macie
+
+Automatically discovers and classifies sensitive information stored in Amazon S3.
+
+AWS Comprehend
+
+Uses machine learning to analyze text and identify personally identifiable information (PII).
+
+Supports automatic PII detection and redaction before data is stored or shared.
+
+AWS CloudTrail
+
+Records every AWS API call. Essential for auditing and forensic investigations.
+
+Amazon GuardDuty
+
+Continuously analyzes AWS activity to detect threats
+
+PII Redaction & Data Governance
+
+Sensitive information must never appear in logs or monitoring systems.
+
+The platform uses services such as AWS Comprehend to detect PII and redact or mask fields before they are stored or shared. 
+Combined with Amazon Macie for S3 data classification, this supports strong data governance practices and helps meet regulatory requirements such as PCI DSS and GDPR.
